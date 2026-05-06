@@ -1,22 +1,20 @@
 // ============================================================
-// MOTOR DIAGNÓSTICO — calculos.js
-// Engine de pontuação. Não depende de nenhuma ferramenta específica.
-// Recebe respostas brutas, devolve perfis calculados.
+// MOTOR DIAGNÓSTICO — calculos.js v2
+// Duas escalas separadas:
+//   ESCALA_DOM  — alto = expressão forte (dons espirituais)
+//   ESCALA_PROB — alto = problema (feridas, saúde invertida)
 // ============================================================
 
 const Calculos = (() => {
 
   // ------------------------------------------------------------
   // 1. PONTUAÇÃO POR EIXO
-  // Recebe: respostas = { id_pergunta: valor_numerico (0-3) }
-  //         eixos = [{ id, perguntas: ['Q1','Q2',...] }]
-  // Devolve: { id_eixo: { pontos, max, percentual } }
   // ------------------------------------------------------------
   function calcularEixos(respostas, eixos) {
     const resultado = {};
     for (const eixo of eixos) {
       const pontos = eixo.perguntas.reduce((acc, id) => acc + (respostas[id] ?? 0), 0);
-      const max = eixo.perguntas.length * 3;
+      const max    = eixo.perguntas.length * 3;
       resultado[eixo.id] = {
         pontos,
         max,
@@ -27,68 +25,90 @@ const Calculos = (() => {
   }
 
   // ------------------------------------------------------------
-  // 2. IDENTIFICAR PERFIL DE UM EIXO
-  // 4 faixas: 0-25% NIVEL_1 · 26-50% NIVEL_2 · 51-75% NIVEL_3 · 76-100% NIVEL_4
+  // 2. NÍVEIS — DOM (alto = positivo)
+  // Latente · Presente · Expressivo · Dominante
   // ------------------------------------------------------------
-  function identificarNivel(percentual) {
-    if (percentual <= 25) return 1;
-    if (percentual <= 50) return 2;
-    if (percentual <= 75) return 3;
-    return 4;
+  function nivelDom(percentual) {
+    if (percentual <= 25) return { nivel: 1, label: 'Latente',    cor: '#3a3530' };
+    if (percentual <= 50) return { nivel: 2, label: 'Presente',   cor: '#7a6a5a' };
+    if (percentual <= 75) return { nivel: 3, label: 'Expressivo', cor: '#c8a97a' };
+    return                       { nivel: 4, label: 'Dominante',  cor: '#e8c88a' };
   }
 
   // ------------------------------------------------------------
-  // 3. IDENTIFICAR FERIDA PREDOMINANTE
-  // Cada pergunta de ferida está mapeada para uma das 5 feridas.
-  // Devolve a ferida com maior pontuação total.
+  // 3. NÍVEIS — PROBLEMA (alto = negativo)
+  // Leve · Moderado · Intenso · Dominante
+  // Usado para: feridas, saúde espiritual invertida
   // ------------------------------------------------------------
-  function identificarFerida(respostas, mapeamentoFeridas) {
-    // mapeamentoFeridas = { REJEICAO: ['F1','F2',...], ABANDONO: [...], ... }
+  function nivelProb(percentual) {
+    if (percentual <= 25) return { nivel: 1, label: 'Leve',      cor: '#4a9e6e' };
+    if (percentual <= 50) return { nivel: 2, label: 'Moderado',  cor: '#c8a97a' };
+    if (percentual <= 75) return { nivel: 3, label: 'Intenso',   cor: '#c87a4a' };
+    return                       { nivel: 4, label: 'Dominante', cor: '#c84a4a' };
+  }
+
+  // ------------------------------------------------------------
+  // 4. SAÚDE ESPIRITUAL (alto = bom — escala dom)
+  // Frágil · Instável · Em processo · Consistente
+  // ------------------------------------------------------------
+  function nivelSaude(percentual) {
+    if (percentual <= 25) return { nivel: 1, label: 'Frágil',       cor: '#c84a4a' };
+    if (percentual <= 50) return { nivel: 2, label: 'Instável',     cor: '#c87a4a' };
+    if (percentual <= 75) return { nivel: 3, label: 'Em processo',  cor: '#c8a97a' };
+    return                       { nivel: 4, label: 'Consistente',  cor: '#4a9e6e' };
+  }
+
+  // ------------------------------------------------------------
+  // 5. RESOLVER NÍVEL POR TIPO DE EIXO
+  // A ferramenta declara o tipo de cada eixo na config
+  // ------------------------------------------------------------
+  function resolverNivel(eixoId, percentual, config) {
+    const tipo = config.tiposEixo?.[eixoId] || 'dom';
+    if (tipo === 'saude')   return nivelSaude(percentual);
+    if (tipo === 'prob')    return nivelProb(percentual);
+    return nivelDom(percentual); // padrão: dom
+  }
+
+  // ------------------------------------------------------------
+  // 6. FERIDA PREDOMINANTE
+  // ------------------------------------------------------------
+  function identificarFerida(respostas, mapeamento) {
     const scores = {};
-    for (const [ferida, ids] of Object.entries(mapeamentoFeridas)) {
+    for (const [ferida, ids] of Object.entries(mapeamento)) {
       scores[ferida] = ids.reduce((acc, id) => acc + (respostas[id] ?? 0), 0);
     }
-    const predominante = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
-    const ordenadas = Object.entries(scores)
-      .sort((a, b) => b[1] - a[1])
-      .map(([ferida, pts]) => ({ ferida, pts }));
+    const ordenadas   = Object.entries(scores).sort((a, b) => b[1] - a[1]).map(([ferida, pts]) => ({ ferida, pts }));
+    const predominante = ordenadas[0][0];
     return { predominante, scores, ordenadas };
   }
 
   // ------------------------------------------------------------
-  // 4. IDENTIFICAR TEMPERAMENTO DOMINANTE
-  // Retorna o temperamento com maior pontuação.
+  // 7. TEMPERAMENTO DOMINANTE
   // ------------------------------------------------------------
-  function identificarTemperamento(respostas, mapeamentoTemp) {
-    // mapeamentoTemp = { COLERICO: ['T1','T2',...], MELANCOLICO: [...], ... }
+  function identificarTemperamento(respostas, mapeamento) {
     const scores = {};
-    for (const [temp, ids] of Object.entries(mapeamentoTemp)) {
+    for (const [temp, ids] of Object.entries(mapeamento)) {
       scores[temp] = ids.reduce((acc, id) => acc + (respostas[id] ?? 0), 0);
     }
-    const dominante = Object.entries(scores).sort((a, b) => b[1] - a[1])[0][0];
-    const secundario = Object.entries(scores).sort((a, b) => b[1] - a[1])[1][0];
+    const ordenados  = Object.entries(scores).sort((a, b) => b[1] - a[1]);
+    const dominante  = ordenados[0][0];
+    const secundario = ordenados[1][0];
     return { dominante, secundario, scores };
   }
 
   // ------------------------------------------------------------
-  // 5. RELATÓRIO COMPLETO
-  // Função principal — recebe tudo, devolve tudo calculado.
+  // 8. RELATÓRIO COMPLETO
   // ------------------------------------------------------------
   function gerarRelatorio(respostas, config) {
-    const eixos = calcularEixos(respostas, config.eixos || []);
+    const eixos  = calcularEixos(respostas, config.eixos || []);
     const niveis = {};
     for (const [id, dados] of Object.entries(eixos)) {
-      niveis[id] = identificarNivel(dados.percentual);
+      niveis[id] = resolverNivel(id, dados.percentual, config);
     }
-    const ferida = config.mapeamentoFeridas
-      ? identificarFerida(respostas, config.mapeamentoFeridas)
-      : null;
-    const temperamento = config.mapeamentoTemperamento
-      ? identificarTemperamento(respostas, config.mapeamentoTemperamento)
-      : null;
-
+    const ferida       = config.mapeamentoFeridas       ? identificarFerida(respostas, config.mapeamentoFeridas)           : null;
+    const temperamento = config.mapeamentoTemperamento  ? identificarTemperamento(respostas, config.mapeamentoTemperamento) : null;
     return { eixos, niveis, ferida, temperamento };
   }
 
-  return { calcularEixos, identificarNivel, identificarFerida, identificarTemperamento, gerarRelatorio };
+  return { calcularEixos, nivelDom, nivelProb, nivelSaude, resolverNivel, identificarFerida, identificarTemperamento, gerarRelatorio };
 })();
