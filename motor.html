@@ -83,7 +83,7 @@
     margin: 0 auto;
   }
   .progress-bar {
-    height: 2px;
+    height: 1px;
     background: var(--borda2);
     border-radius: 2px;
     overflow: hidden;
@@ -336,7 +336,7 @@
     text-transform: uppercase;
     font-weight: 500;
   }
-  .eixo-barra { height: 3px; background: var(--borda2); border-radius: 2px; overflow: hidden; }
+  .eixo-barra { height: 2px; background: var(--borda2); border-radius: 2px; overflow: hidden; }
   .eixo-fill { height: 100%; border-radius: 2px; transition: width 1s ease 0.3s; }
 
   /* Card de resultado */
@@ -431,8 +431,8 @@
 <!-- LOADING -->
 <div class="loading" id="loading">
   <div class="loading-spinner"></div>
-  <div class="loading-texto">Analisando seu perfil...</div>
-  <div class="loading-sub">Isso leva alguns segundos</div>
+  <div class="loading-texto">Lendo seu perfil...</div>
+  <div class="loading-sub">Seu resultado chegará em instantes e também será enviado para seu email</div>
 </div>
 
 <!-- RESULTADO -->
@@ -522,13 +522,17 @@ function criarStepDados(cfg) {
       <input type="email" id="campo-email" placeholder="seu@email.com" autocomplete="off">
     </div>
     ${cfg.camposExtras ? cfg.camposExtras.map(c => `
-    <div class="campo">
+    <div class="campo" id="campo-wrap-${c.id}">
       <label>${c.label}</label>
       ${c.tipo === 'select'
-        ? `<select id="campo-${c.id}">${c.opcoes.map(o => `<option value="${o.valor}">${o.label}</option>`).join('')}</select>`
+        ? `<select id="campo-${c.id}" onchange="onCampoChange('${c.id}', this.value)">${c.opcoes.map(o => `<option value="${o.valor}">${o.label}</option>`).join('')}</select>`
         : `<input type="${c.tipo}" id="campo-${c.id}" placeholder="${c.placeholder || ''}">`
       }
     </div>`).join('') : ''}
+    <div class="campo" id="campo-wrap-religiao" style="display:none">
+      <label>Qual religião você professa?</label>
+      <input type="text" id="campo-religiao" placeholder="Escreva aqui..." autocomplete="off">
+    </div>
     ${cfg.aviso ? `<div class="aviso">${cfg.aviso}</div>` : ''}
     <div class="btn-wrap">
       <button class="btn btn-primary" onclick="avancarDados()">Começar</button>
@@ -596,6 +600,13 @@ function atualizarProgresso() {
     stepAtual === 0 ? '' : `${stepAtual} de ${totalSteps}`;
 }
 
+function onCampoChange(id, valor) {
+  if (id === 'tempo_fe') {
+    const wrap = document.getElementById('campo-wrap-religiao');
+    if (wrap) wrap.style.display = valor === 'nao_sou' ? 'block' : 'none';
+  }
+}
+
 function avancarDados() {
   const nome = document.getElementById('campo-nome')?.value?.trim();
   const email = document.getElementById('campo-email')?.value?.trim();
@@ -610,6 +621,10 @@ function avancarDados() {
       dadosPessoais[c.id] = document.getElementById(`campo-${c.id}`)?.value;
     });
   }
+  // Capturar religião se visível
+  const religiao = document.getElementById('campo-religiao')?.value?.trim();
+  if (religiao) dadosPessoais.religiao = religiao;
+
   mostrarStep(1);
 }
 
@@ -660,21 +675,14 @@ async function finalizarDiagnostico() {
   // Montar resultado visual
   exibirResultadoVisual(relatorio, cfg);
 
-  // Chamar IA (se tiver chave configurada)
-  if (cfg.apiKey || window.ANTHROPIC_API_KEY) {
-    await chamarIA(relatorio, cfg);
-  }
+  // Chamar backend (IA + email)
+  await chamarBackend(relatorio, cfg);
 
   // Esconder loading, mostrar resultado
   document.getElementById('loading').classList.remove('ativo');
   document.getElementById('resultado').classList.add('ativo');
   document.getElementById('progress-fill').style.width = '100%';
   document.getElementById('progress-label').textContent = 'Concluído';
-
-  // Enviar para webhook (se configurado)
-  if (cfg.webhookUrl) {
-    enviarWebhook(relatorio, cfg);
-  }
 }
 
 function exibirResultadoVisual(relatorio, cfg) {
@@ -689,9 +697,9 @@ function exibirResultadoVisual(relatorio, cfg) {
   const eixosWrap = document.getElementById('res-eixos');
   eixosWrap.innerHTML = '';
   cfg.eixos?.forEach(e => {
-    const dados = eixos[e.id];
-    const nivel = Prompt.NIVEIS[niveis[e.id]];
-    const div = document.createElement('div');
+    const dados  = eixos[e.id];
+    const nivel  = niveis[e.id]; // agora é { nivel, label, cor }
+    const div    = document.createElement('div');
     div.className = 'eixo-item';
     div.innerHTML = `
       <div class="eixo-top">
@@ -739,58 +747,30 @@ function exibirResultadoVisual(relatorio, cfg) {
   }
 }
 
-async function chamarIA(relatorio, cfg) {
-  const apiKey = cfg.apiKey || window.ANTHROPIC_API_KEY;
-  // Usa promptPersonalizado da ferramenta se existir, senão usa o motor genérico
-  const promptTexto = cfg.promptPersonalizado
-    ? cfg.promptPersonalizado(dadosPessoais.nome, relatorio, cfg)
-    : Prompt.montarPrompt({
-        nome: dadosPessoais.nome,
-        relatorio,
-        config: cfg,
-        formato: cfg.formato || 'mentorado'
-      });
-
+async function chamarBackend(relatorio, cfg) {
   try {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('/api/enviar', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1200,
-        messages: [{ role: 'user', content: promptTexto }]
+        dados: dadosPessoais,
+        relatorio
       })
     });
 
     const data = await res.json();
-    if (data.content?.[0]?.text) {
-      document.getElementById('res-devolutiva-texto').textContent = data.content[0].text;
+
+    if (data.devolutiva) {
+      document.getElementById('res-devolutiva-texto').textContent = data.devolutiva;
       document.getElementById('res-devolutiva-wrap').style.display = 'block';
     } else {
-      throw new Error(data.error?.message || 'Resposta inválida da API');
+      throw new Error(data.erro || 'Sem resposta do servidor');
     }
   } catch (err) {
     const erroEl = document.getElementById('res-erro');
-    erroEl.textContent = 'Não foi possível gerar a análise personalizada agora. O resultado visual acima já está disponível.';
+    erroEl.textContent = 'O resultado visual está disponível acima. A análise personalizada será enviada por email em instantes.';
     erroEl.style.display = 'block';
   }
-}
-
-function enviarWebhook(relatorio, cfg) {
-  fetch(cfg.webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...dadosPessoais,
-      ferramenta: cfg.nome,
-      relatorio,
-      timestamp: new Date().toISOString()
-    })
-  }).catch(() => {}); // silencioso
 }
 
 // ── START ────────────────────────────────────────────────────
