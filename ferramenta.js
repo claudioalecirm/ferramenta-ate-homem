@@ -42,9 +42,22 @@ window.FERRAMENTA_CONFIG = {
         { valor: '1_5',      label: '1 a 5 anos' },
         { valor: '5_10',     label: '5 a 10 anos' },
         { valor: 'mais_10',  label: 'Mais de 10 anos' },
+        { valor: 'nao_sou',  label: 'Não sou cristão' },
       ]
     }
   ],
+
+  // ── TIPOS DE EIXO (define a escala de interpretação) ──────
+  // 'dom'   = alto é positivo (Latente → Dominante)
+  // 'saude' = alto é positivo mas com labels de saúde
+  // 'prob'  = alto é negativo (Leve → Dominante)
+  tiposEixo: {
+    don_apostolo: 'dom', don_profeta: 'dom', don_mestre: 'dom', don_milagres: 'dom',
+    don_cura: 'dom', don_socorros: 'dom', don_governo: 'dom', don_linguas: 'dom',
+    mot_profecia: 'dom', mot_servico: 'dom', mot_ensino: 'dom', mot_exortacao: 'dom',
+    mot_contribuicao: 'dom', mot_lideranca: 'dom', mot_misericordia: 'dom',
+    saude_esp: 'saude',
+  },
 
   // ── EIXOS ─────────────────────────────────────────────────
   eixos: [
